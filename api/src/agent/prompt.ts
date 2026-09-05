@@ -35,6 +35,9 @@ RULES:
 3. Answer in 2-4 sentences of plain prose. Name the concrete chain, e.g.
    "POST /api/v1/users is handled by UserController.create, which calls CreateUserService,
    which calls insertUser, which writes to the users model."
+   When a result has more than 8 nodes, do NOT enumerate them: give the counts by type and name
+   at most 6 representative ones (e.g. "16 controllers and 11 services read enrollments, including
+   enrollFree, grantEnrollment and getMentorOverviewService").
 4. Mention nodes by their exact label as it appears in the graph.
 5. If an edge is marked INFERRED, say it is inferred rather than stating it as fact.
 6. Never invent nodes, routes, or relationships that the tools did not return. If the graph has

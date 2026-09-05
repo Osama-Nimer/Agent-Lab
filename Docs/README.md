@@ -48,6 +48,22 @@ Four decisions in `EXECUTION_PLAN.md` section 0. Only one is truly blocking:
 > **Pin the demo repo.** A discovery engine tuned to one known repository is a demo. One tuned to
 > no repository in particular is a coin flip. Pick a primary and a fallback before T+10.
 
+## Integration status (all three lanes merged)
+
+```bash
+cd api ; npm run dev        # http://localhost:3001  (keys in api/.env — see SETUP.md section 5)
+cd web ; npm run dev        # http://localhost:3000  -> proxies /api/* to :3001
+```
+
+- **Demo target: `MentoraJo-backend`** (Express + Drizzle, `src/modules/*`). Paste its absolute
+  path into the UI's input; analysis takes ~4.5s and yields ~830 nodes / ~1370 edges with a single
+  benign warning. Good questions: *"How does creating a course work?"*, *"What depends on the
+  enrollments model?"*, *"Show me the authentication architecture."*
+- **Providers:** `LLM_PROVIDER` picks the primary; every other key present in `api/.env` is an
+  automatic failover on rate limits (free tiers throttle — Groq 8k tokens/min, Gemini per-minute
+  quotas). `GET /api/health` shows primary, model and failover order; each answer says who answered.
+- **Checks:** `cd api ; npm test ; npm run smoke ; npm run smoke:live` — and `cd web ; npx next build`.
+
 ## Open items carried from planning
 
 - Demo repo: **not yet pinned** — blocking Lane A tuning

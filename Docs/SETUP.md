@@ -171,8 +171,10 @@ a wrong env is visible in one request. Full list of knobs: `api/.env.example`.
 > agent turn resends the conversation (~1.2–1.9k tokens), so one question costs ~3–6k tokens and
 > a second question within the same minute gets throttled — the client waits on `retry-after`
 > and the answer arrives 30–50s late instead of 4s. **On stage: one question per minute, and
-> never fire two at once.** If you need more, put a Gemini key in as backup (`GEMINI_API_KEY`,
-> 250k TPM free) and switch with `LLM_PROVIDER=gemini` + restart.
+> never fire two at once.** With two or more keys in `api/.env` the API **fails over
+> automatically**: a 429 on the primary switches to the next provider for that question, and the
+> rate-limited provider is skipped for the next 60s. Each answer reports `llm.provider`, and
+> `GET /api/health` shows the failover order and who is cooling down.
 
 > Non-OpenAI hosts get plain JSON-Schema tools (`strict: false`) and the server validates tool
 > arguments itself; OpenAI gets strict schemas. This is automatic per provider.

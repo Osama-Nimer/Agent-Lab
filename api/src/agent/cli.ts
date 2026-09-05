@@ -20,7 +20,8 @@ try {
   const t0 = Date.now();
   const res = await ask(question, { rootDir });
   console.log(res.answer);
-  console.log("\ncitedNodeIds:", res.citedNodeIds);
+  console.log(`\nanswered by: ${res.llm?.provider}/${res.llm?.model}`);
+  console.log("citedNodeIds:", res.citedNodeIds);
   console.log("toolCalls:", res.toolCalls.map((t) => `${t.name}(${JSON.stringify(t.args)})`));
   console.error(`\n${Date.now() - t0} ms`);
   process.exit(0);

@@ -143,6 +143,8 @@ export interface AskResponse {
   answer: string;
   citedNodeIds: string[];
   toolCalls: ToolCallTrace[];
+  /** Additive (optional): which provider/model actually answered — useful on stage after a failover. */
+  llm?: { provider: string; model: string };
 }
 
 export interface ErrorResponse {

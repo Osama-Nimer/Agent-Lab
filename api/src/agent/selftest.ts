@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Graph } from "../contract.js";
 import { indexGraph } from "../graph/query.js";
-import { demoteModel, getLLMConfig, resetLLMConfig, resolveModel } from "../llm.js";
+import { demoteModel, getActiveChain, getLLMConfig, markModelCooling, markRateLimited, resetLLMConfig, resolveModel, selectModel } from "../llm.js";
 import { makeTools, type ToolContext } from "./tools.js";
 
 let failures = 0;
@@ -66,11 +66,37 @@ withEnv({ GROQ_API_KEY: "gsk" }, () => {
 });
 withEnv({ GROQ_API_KEY: "gsk", LLM_MODEL: "pinned-model" }, () => {
   check("demoteModel: pinned LLM_MODEL is never demoted", demoteModel("pinned-model") === null && getLLMConfig().model === "pinned-model");
+  check("selectModel: pinned LLM_MODEL always wins", selectModel(getLLMConfig()) === "pinned-model");
+});
+// Per-model rate limits (Groq TPM is per model): rotate to a sibling, come back when the window resets.
+withEnv({ GROQ_API_KEY: "gsk" }, () => {
+  const g = getLLMConfig();
+  g.catalog = ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"];
+  g.modelSource = "catalog";
+  check("selectModel: best candidate first", selectModel(g) === "openai/gpt-oss-120b");
+  markModelCooling(g, "openai/gpt-oss-120b", 60_000);
+  check("selectModel: cooling model skipped -> next listed preference", selectModel(g) === "qwen/qwen3.8-27b", g.model);
+  markModelCooling(g, "qwen/qwen3.8-27b", 60_000);
+  check("selectModel: two cooling -> third", selectModel(g) === "openai/gpt-oss-20b");
+  markModelCooling(g, "openai/gpt-oss-20b", 60_000);
+  check("selectModel: all cooling -> null (provider failover)", selectModel(g) === null);
+});
+
+// Failover chain: primary first, then every other keyed preset; rate-limited ones move to the back.
+withEnv({ LLM_PROVIDER: "gemini", GEMINI_API_KEY: "g", GROQ_API_KEY: "gsk", CEREBRAS_API_KEY: "c" }, () => {
+  const names = () => getActiveChain().map((c) => c.provider);
+  check("chain: gemini primary, groq + cerebras failover", JSON.stringify(names()) === JSON.stringify(["gemini", "groq", "cerebras"]), names());
+  markRateLimited("gemini");
+  check("chain: rate-limited primary moves to the back for 60s", JSON.stringify(names()) === JSON.stringify(["groq", "cerebras", "gemini"]), names());
+  markRateLimited("groq", 10_000);
+  markRateLimited("cerebras", 40_000);
+  check("chain: all cooling -> soonest to recover first", JSON.stringify(names()) === JSON.stringify(["groq", "cerebras", "gemini"]), names());
+  check("chain: failover configs keep preset models, not the primary's LLM_MODEL", getActiveChain().find((c) => c.provider === "groq")!.model === "openai/gpt-oss-120b");
 });
 c = cfg({ LLM_PROVIDER: "openai", OPENAI_API_KEY: "sk", LLM_STRICT_TOOLS: "false", LLM_MODEL: "gpt-4o-mini", LLM_FORCE_FIRST_TOOL: "0" });
 check("explicit overrides beat preset", !c.strictTools && c.model === "gpt-4o-mini" && !c.forceFirstTool && c.resolvedFrom === "LLM_PROVIDER", c);
 c = cfg({ GEMINI_API_KEY: "g" });
-check("gemini preset", c.provider === "gemini" && c.model === "gemini-2.5-flash", c);
+check("gemini preset", c.provider === "gemini" && c.model === "gemini-3.6-flash", c);
 check("unknown provider throws", /Unknown LLM_PROVIDER/.test(throws({ LLM_PROVIDER: "bogus" })));
 check("custom without base url throws", /LLM_BASE_URL/.test(throws({ LLM_PROVIDER: "custom", LLM_API_KEY: "k" })));
 c = cfg({ LLM_PROVIDER: "custom", LLM_API_KEY: "k", LLM_BASE_URL: "http://x/v1", LLM_MODEL: "m" });

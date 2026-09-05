@@ -217,6 +217,10 @@ Lets SWE-C reload the page without re-analyzing.
 `citedNodeIds` drives canvas highlighting. `toolCalls` is rendered as a small "what the agent
 did" trace — **this is what proves the graph is being used**, so do not skip it.
 
+Additive (optional, added at integration): `"llm": { "provider": "gemini", "model": "gemini-3.6-flash" }`
+— which host actually answered, since the API fails over between providers on rate limits. The UI
+may show it or ignore it.
+
 ---
 
 ## 5. Agent Tools   [SWE-B]

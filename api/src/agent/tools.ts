@@ -18,14 +18,11 @@ export interface ToolContext {
   rootDir: string | null;
 }
 
-const compact = (n: GraphNode) => ({
-  id: n.id,
-  type: n.type,
-  label: n.label,
-  module: n.module,
-  file: n.file,
-  line: n.line,
-});
+// Listings are id/type/label only: free tiers meter tokens per minute and a 40-node neighbourhood
+// with file paths was ~2k tokens per turn. The UI shows file/line from the graph; the answer does
+// not need them. The traversal centre keeps its location for the agent's own orientation.
+const compact = (n: GraphNode) => ({ id: n.id, type: n.type, label: n.label });
+const located = (n: GraphNode) => ({ ...compact(n), module: n.module, file: n.file, line: n.line });
 const edgeView = (e: { source: string; target: string; type: string; confidence: string }) => ({
   source: e.source,
   target: e.target,
@@ -101,7 +98,21 @@ export function makeTools(ctx: ToolContext, strict: boolean): Tool[] {
         const d = Number(depth ?? 1);
         const r = q.neighbors(nodeId, direction, Number.isFinite(d) ? d : 1);
         see([r.center, ...r.nodes]);
-        return JSON.stringify({ center: compact(r.center), nodes: r.nodes.map(compact), edges: r.edges.map(edgeView) });
+        // Big fan-ins (a core table) can be hundreds of nodes; that blows free-tier token budgets
+        // and the model would only enumerate them anyway. Cap, and say what was left out.
+        const MAX = 30;
+        const byType: Record<string, number> = {};
+        for (const n of r.nodes) byType[n.type] = (byType[n.type] ?? 0) + 1;
+        const shown = r.nodes.slice(0, MAX);
+        const shownIds = new Set(shown.map((n) => n.id).concat(r.center.id));
+        return JSON.stringify({
+          center: located(r.center),
+          totalNodes: r.nodes.length,
+          countsByType: byType,
+          truncated: r.nodes.length > MAX ? `${r.nodes.length - MAX} more nodes not shown — summarize by countsByType instead of listing` : undefined,
+          nodes: shown.map(compact),
+          edges: r.edges.filter((e) => shownIds.has(e.source) && shownIds.has(e.target)).slice(0, 60).map(edgeView),
+        });
       } catch (e) {
         return fail(e);
       }
