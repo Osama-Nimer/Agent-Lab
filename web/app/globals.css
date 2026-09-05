@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+:root {
+  --background: #09090b;
+  --foreground: #fafafa;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* React Flow overrides for dark theme */
+.react-flow__attribution {
+  display: none !important;
+}

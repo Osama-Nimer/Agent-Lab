@@ -1,5 +1,6 @@
 node_modules/
 .env
 .tmp-repos/
+.tmp-demo/
 fixtures/last-graph.json
 .next/
