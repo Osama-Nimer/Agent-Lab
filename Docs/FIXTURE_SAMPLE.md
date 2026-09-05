@@ -86,7 +86,7 @@ Use these to verify Lane B's `query.ts` without any agent involved:
 
 | Call | Expected |
 |---|---|
-| `findNodes("user")` | 8 nodes (routes, controller, services, repos, model) |
+| `findNodes("user")` | 9 nodes (2 routes, controller, 2 services, 2 repos, model, module — `AuthService` excluded) |
 | `neighbors("service:CreateUserService", "in")` | `controller:UserController` |
 | `neighbors("service:CreateUserService", "out")` | `repo:insertUser` |
 | `neighbors("model:users", "in")` | both repos **and** `service:AuthService` (the INFERRED one) |

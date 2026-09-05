@@ -26,6 +26,12 @@ api/src/discovery/
 
 ---
 
+> **Set `fromKind` and `toKind` on every edge you emit.** Lane B's self-test found that names
+> collide across kinds (a Module `users` and a Model `users`), which silently mis-wires edges
+> when only names are given. You know both kinds at the moment you emit an edge — include them.
+> Also: `npm run discover -- <repo>` is already wired in `api/package.json`, and the server
+> auto-detects `src/discovery/index.ts` exporting `discover` — no server edits needed to integrate.
+
 ## A1 — Repo loading + file walk   *(12 min)*
 
 `load.ts`:
@@ -315,5 +321,8 @@ Run it constantly: `npx tsx src/discovery/cli.ts ../demo-repo | head -100`
 
 ## Hand-off at T+75
 
-Give SWE-B one line: `import { discover } from "./discovery/index.js"`. That is the whole
-integration. If your output validates against `contract.ts`, wiring takes under two minutes.
+There is nothing to hand off. `api/src/discovery-adapter.ts` (Lane B) dynamically imports
+`./discovery/index.ts` and calls its exported `discover(rootDir)` when the file exists; until
+then it serves the fixture with a warning. Commit your directory, restart the server, and
+`POST /api/analyze { localPath }` is live. If `discover` throws, the error surfaces as
+`{ error }` — it is not hidden behind the fixture.

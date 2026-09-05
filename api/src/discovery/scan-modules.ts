@@ -75,7 +75,9 @@ export function scanModules(project: Project, rootDir: string, warnings: string[
     });
     edges.push({
       from: path.basename(rootDir),
+      fromKind: "Project",
       to: slug,
+      toKind: "Module",
       type: "CONTAINS",
       confidence: "EXTRACTED",
       evidence: moduleEvidence,
@@ -154,6 +156,16 @@ function walkRouterMounts(
 
   const imports = importTable(project, rootDir, sf);
 
+  // Barrel files (`modules/announcements/index.ts` = `export default announcementsRoutes`) carry
+  // the prefix through to the routes file they re-export.
+  for (const reExported of reExportedRouters(sf, imports)) {
+    const slug = moduleSlugForFile(rootDir, reExported.sourceFile!.getFilePath(), modulesRoot);
+    if (slug && (prefixByModule.get(slug) === undefined || inheritedPrefix.length < prefixByModule.get(slug)!.length)) {
+      prefixByModule.set(slug, inheritedPrefix);
+    }
+    walkRouterMounts(project, rootDir, modulesRoot, reExported.sourceFile!, inheritedPrefix, prefixByModule, prefixByFile, warnings, visited);
+  }
+
   for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
     const expr = call.getExpression();
     if (!Node.isPropertyAccessExpression(expr) || expr.getName() !== "use") continue;
@@ -177,13 +189,18 @@ function walkRouterMounts(
 
     const routerId = routerArg.getText();
     const imported = imports.get(routerId)!;
-    const slug = matchModuleSlug(imported.spec, modulesRoot);
+    // Prefer the resolved file's location (handles `./activity/activity.routes` imported from an
+    // aggregator inside modules/), fall back to matching the specifier text.
+    const slug = (imported.sourceFile
+      ? moduleSlugForFile(rootDir, imported.sourceFile.getFilePath(), modulesRoot)
+      : null) ?? matchModuleSlug(imported.spec, modulesRoot);
     if (slug) {
+      // The module's own prefix is its OUTERMOST mount; nested sub-routers (courses -> assets) are
+      // more specific and recorded per file below.
       const current = prefixByModule.get(slug);
-      if (current === undefined || mountedPrefix.length > current.length) {
+      if (current === undefined || mountedPrefix.length < current.length) {
         prefixByModule.set(slug, mountedPrefix);
       }
-      continue;
     }
 
     if (imported.sourceFile) {
@@ -198,7 +215,7 @@ function walkRouterMounts(
         warnings,
         visited
       );
-    } else if (/route|router/i.test(imported.spec)) {
+    } else if (!slug && /route|router/i.test(imported.spec)) {
       warnings.push(`Could not follow router "${routerId}" imported from "${imported.spec}"`);
     }
   }
@@ -244,8 +261,30 @@ function resolveImportSource(
 }
 
 function looksLikeRouter(imported: ImportedRouter): boolean {
-  return /route|router/i.test(imported.spec)
-    || Boolean(imported.sourceFile?.getFullText().match(/\bRouter\s*\(/));
+  if (/route|router/i.test(imported.spec)) return true;
+  const sf = imported.sourceFile;
+  if (!sf) return false;
+  const text = sf.getFullText();
+  // Creates a router, or is a barrel that re-exports one (`export default announcementsRoutes`).
+  return /\bRouter\s*\(/.test(text) || /from\s+["'][^"']*rout(e|er)s?["']/i.test(text);
+}
+
+/**
+ * `export default X` / `export { X as default }` where X is an imported router: the mount prefix
+ * flows straight through this barrel file into the real routes file.
+ */
+function reExportedRouters(sf: SourceFile, imports: Map<string, ImportedRouter>): ImportedRouter[] {
+  const out: ImportedRouter[] = [];
+  const consider = (name: string | undefined) => {
+    const imported = name ? imports.get(name) : undefined;
+    if (imported?.sourceFile && looksLikeRouter(imported)) out.push(imported);
+  };
+  for (const ea of sf.getExportAssignments()) consider(ea.getExpression().getText());
+  for (const ed of sf.getExportDeclarations()) {
+    if (ed.getModuleSpecifierValue()) continue; // `export { x } from "./y"` handled by imports? no — treat as opaque
+    for (const spec of ed.getNamedExports()) consider(spec.getName());
+  }
+  return out;
 }
 
 function joinPrefixes(parent: string, child: string): string {

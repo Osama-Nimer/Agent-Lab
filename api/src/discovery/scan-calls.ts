@@ -58,6 +58,9 @@ function edgeTypeFor(toKind: NodeType): EdgeType {
   return toKind === "Model" ? "READS_WRITES" : "CALLS";
 }
 
+/** ORM entry points whose first argument is the table: db.insert(users), .from(users), .update(users)… */
+const TABLE_METHODS = new Set(["from", "insert", "into", "update", "delete", "deleteFrom", "selectFrom", "insertInto", "updateTable"]);
+
 export function scanCalls(
   project: Project,
   rootDir: string,
@@ -75,15 +78,10 @@ export function scanCalls(
     const imports = buildImportTable(sf);
     const module = moduleSlugForFile(rootDir, filePath, modulesRoot);
 
-    if (ownerKind === "Controller") {
-      for (const owner of declaredControllerOwners(sf)) {
-        addNode(nodes, {
-          kind: ownerKind,
-          name: owner.name,
-          module,
-          evidence: evidence(rootDir, owner.declaration),
-        }, true);
-      }
+    // Every exported handler/service is a node even if it never calls anything we can resolve —
+    // routes point at them, and a dangling HANDLED_BY would otherwise be dropped.
+    for (const owner of declaredOwners(sf)) {
+      addNode(nodes, { kind: ownerKind, name: owner.name, module, evidence: evidence(rootDir, owner.declaration) }, true);
     }
 
     for (const call of sf.getDescendantsOfKind(SyntaxKind.CallExpression)) {
@@ -91,25 +89,17 @@ export function scanCalls(
       if (!target) continue;
 
       const owner = findOwner(call, sf);
-      if (!owner) continue;
+      if (!owner || owner.name === target.name) continue;
 
       const callEv = evidence(rootDir, call);
-      addNode(nodes, {
-        kind: ownerKind,
-        name: owner.name,
-        module,
-        evidence: evidence(rootDir, owner.declaration),
-      }, true);
-      addNode(nodes, {
-        kind: target.kind,
-        name: target.name,
-        module,
-        evidence: callEv,
-      });
+      addNode(nodes, { kind: ownerKind, name: owner.name, module, evidence: evidence(rootDir, owner.declaration) }, true);
+      addNode(nodes, { kind: target.kind, name: target.name, module, evidence: callEv });
 
       edges.push({
         from: owner.name,
+        fromKind: ownerKind,
         to: target.name,
+        toKind: target.kind,
         type: edgeTypeFor(target.kind),
         confidence: target.confidence,
         evidence: callEv,
@@ -156,7 +146,7 @@ function resolveTarget(call: CallExpression, imports: Map<string, ImportTarget>)
   if (!chain || chain.parts.length === 0) return null;
 
   if (chain.root === "this" && chain.parts.length >= 2) {
-    const objectName = chain.parts[0];
+    const objectName = chain.parts[0]!;
     const imported = findObjectImport(objectName, imports);
     if (!imported) {
       const kind = classifyByName(objectName);
@@ -173,18 +163,17 @@ function resolveTarget(call: CallExpression, imports: Map<string, ImportTarget>)
     const kind = classifyBySpecifier(imported.spec);
     if (!kind) return null;
 
-    if (kind === "Model" && /^(db|database)$/i.test(chain.root)
-      && chain.parts.length === 1 && /^(insert|select|update|delete)$/i.test(chain.parts[0])) {
-      const firstArg = call.getArguments()[0];
-      if (firstArg && Node.isIdentifier(firstArg)) {
-        return { name: firstArg.getText(), kind, confidence: "EXTRACTED" };
-      }
+    if (kind === "Model" && /^(db|database|prisma|client|knex|sequelize|tx|trx)$/i.test(chain.root)) {
+      // Query-builder chains: the table is the argument of from/insert/update/delete somewhere in
+      // the chain (drizzle, knex, kysely), or the first property after `db.query.` / `prisma.`.
+      const table = tableFromChain(call);
+      if (table) return { name: table, kind, confidence: "EXTRACTED" };
+      if (chain.parts[0] === "query" && chain.parts.length >= 2) return { name: chain.parts[1]!, kind, confidence: "EXTRACTED" };
+      if (/^prisma$/i.test(chain.root) && chain.parts.length >= 2) return { name: chain.parts[0]!, kind, confidence: "EXTRACTED" };
+      return null; // `db.transaction(...)`, `db.execute(sql)` — the client itself is not a model
     }
     if (kind === "Model" && /^col$/i.test(chain.root) && chain.parts.length >= 1) {
-      return { name: chain.parts[0], kind, confidence: "EXTRACTED" };
-    }
-    if (kind === "Model" && /^(prisma|db|database)$/i.test(chain.root) && chain.parts.length >= 2) {
-      return { name: chain.parts[0], kind, confidence: "EXTRACTED" };
+      return { name: chain.parts[0]!, kind, confidence: "EXTRACTED" };
     }
     return { name: imported.importedName, kind, confidence: "EXTRACTED" };
   }
@@ -195,9 +184,25 @@ function resolveTarget(call: CallExpression, imports: Map<string, ImportTarget>)
     : null;
 }
 
+/** Walk a fluent chain (`db.select(...).from(users).where(...)`) down to its root looking for the table call. */
+function tableFromChain(call: CallExpression): string | null {
+  let current: Node | undefined = call;
+  while (current && Node.isCallExpression(current)) {
+    const callee: Node = current.getExpression();
+    if (Node.isPropertyAccessExpression(callee) && TABLE_METHODS.has(callee.getName())) {
+      const first = current.getArguments()[0];
+      if (first && Node.isIdentifier(first)) return first.getText();
+      if (first && Node.isPropertyAccessExpression(first)) return first.getName(); // schema.users
+    }
+    current = Node.isPropertyAccessExpression(callee) ? callee.getExpression() : undefined;
+  }
+  return null;
+}
+
 function propertyChain(node: Node): { root: string; parts: string[] } | null {
   if (Node.isIdentifier(node)) return { root: node.getText(), parts: [] };
   if (node.getKind() === SyntaxKind.ThisKeyword) return { root: "this", parts: [] };
+  if (Node.isCallExpression(node)) return propertyChain(node.getExpression()); // db.select().from -> keep walking
   if (!Node.isPropertyAccessExpression(node)) return null;
   const parent = propertyChain(node.getExpression());
   if (!parent) return null;
@@ -215,6 +220,11 @@ function findObjectImport(objectName: string, imports: Map<string, ImportTarget>
   ) ?? null;
 }
 
+/**
+ * Who "owns" a call: the class instance, the exported object literal, or the TOP-LEVEL exported
+ * function/const the call sits inside. Never an inner `const [row] = await db...` — that produced
+ * junk nodes like "[ack]" and "{ uploadUrl, fileKey }".
+ */
 function findOwner(call: CallExpression, sf: SourceFile): Owner | null {
   const ancestors = call.getAncestors();
   const classDecl = ancestors.find(Node.isClassDeclaration);
@@ -235,38 +245,46 @@ function findOwner(call: CallExpression, sf: SourceFile): Owner | null {
     .filter(Node.isVariableDeclaration)
     .find((declaration) => {
       const initializer = declaration.getInitializer();
-      return Boolean(initializer && Node.isObjectLiteralExpression(initializer));
+      return Boolean(initializer && Node.isObjectLiteralExpression(initializer)) && Node.isIdentifier(declaration.getNameNode());
     });
   if (objectOwner) return { name: objectOwner.getName(), declaration: objectOwner };
 
-  const functionOwner = ancestors.find(Node.isFunctionDeclaration);
-  if (functionOwner?.getName()) {
-    return { name: functionOwner.getName()!, declaration: functionOwner };
+  // Top-level statement containing the call.
+  const top = ancestors.find((a) => Node.isSourceFile(a.getParent()));
+  if (!top) return null;
+  if (Node.isFunctionDeclaration(top) && top.getName()) return { name: top.getName()!, declaration: top };
+  if (Node.isVariableStatement(top)) {
+    const declaration = top.getDeclarations()[0];
+    if (declaration && Node.isIdentifier(declaration.getNameNode())) return { name: declaration.getName(), declaration };
   }
-
-  const variableOwner = ancestors.find(Node.isVariableDeclaration);
-  return variableOwner
-    ? { name: variableOwner.getName(), declaration: variableOwner }
-    : null;
+  return null;
 }
 
-function declaredControllerOwners(sf: SourceFile): Owner[] {
+/** Exported controller objects, class instances, classes, and (function-style) exported handlers. */
+function declaredOwners(sf: SourceFile): Owner[] {
   const owners: Owner[] = [];
   const claimedClasses = new Set<string>();
 
   for (const declaration of sf.getVariableDeclarations()) {
     const initializer = declaration.getInitializer();
-    if (!declaration.isExported() || !initializer) continue;
+    if (!declaration.isExported() || !initializer || !Node.isIdentifier(declaration.getNameNode())) continue;
     if (Node.isNewExpression(initializer)) {
       const className = initializer.getExpression().getText();
-      const classDecl = sf.getClass(className);
-      if (classDecl) claimedClasses.add(className);
+      if (sf.getClass(className)) claimedClasses.add(className);
       owners.push({ name: declaration.getName(), declaration });
-    } else if (Node.isObjectLiteralExpression(initializer)) {
-      owners.push({ name: declaration.getName(), declaration });
+      continue;
     }
+    // Anything else exported from a controller/service/repo file is a handler or a service function:
+    // arrow/function, object literal, or a factory call (`export const getCities = readFactory(...)`).
+    // Skip plain data constants (strings, numbers, arrays, templates) — those are not behaviour.
+    const isData = Node.isStringLiteral(initializer) || Node.isNumericLiteral(initializer) || Node.isArrayLiteralExpression(initializer)
+      || Node.isTemplateExpression(initializer) || Node.isNoSubstitutionTemplateLiteral(initializer)
+      || initializer.getKind() === SyntaxKind.TrueKeyword || initializer.getKind() === SyntaxKind.FalseKeyword;
+    if (!isData) owners.push({ name: declaration.getName(), declaration });
   }
-
+  for (const fn of sf.getFunctions()) {
+    if (fn.isExported() && fn.getName()) owners.push({ name: fn.getName()!, declaration: fn });
+  }
   for (const classDecl of sf.getClasses()) {
     const className = classDecl.getName();
     if (className && !claimedClasses.has(className)) {
