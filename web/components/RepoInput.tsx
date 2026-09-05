@@ -15,7 +15,8 @@ export default function RepoInput({ onAnalyze, onLoadSample, loading, repoName }
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!value.trim()) return;
-    const input = value.startsWith("http") ? { repoUrl: value.trim() } : { localPath: value.trim() };
+    const trimmedValue = value.trim();
+    const input = trimmedValue.startsWith("http") ? { repoUrl: trimmedValue } : { localPath: trimmedValue };
     onAnalyze(input);
   };
 
