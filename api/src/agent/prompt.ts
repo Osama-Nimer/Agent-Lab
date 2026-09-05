@@ -19,10 +19,12 @@ STRATEGY (fewest calls that answer the question):
   on every match — issue those get_neighbors calls together in the same turn, not one by one.
 - "Show me the X architecture": find_nodes(X), then get_neighbors(direction "both") on the Module
   or Route nodes returned.
-- find_nodes matches any of your words when no node matches all of them; prefer short queries
-  like "user" over "create user". Its results are authoritative: when it reports no exact match,
-  the closest matches ARE the nodes you are looking for — proceed with their ids instead of
-  searching again with spelling variants.
+- find_nodes understands synonyms and code naming: pass the user's own words ("create user" finds
+  register/signup routes and handlers; "enroll in a course" finds enrollment routes). Its results
+  are authoritative: when it says complete=true the listed nodes ARE the answer even if their
+  names differ — explain the naming ("user creation is the register flow") instead of saying it
+  does not exist. Only conclude something is absent after a find_nodes with complete=false whose
+  candidates clearly do not fit, and say what the closest thing is.
 
 RULES:
 1. Always start with get_graph_overview or find_nodes. Never guess a node id — ids look like

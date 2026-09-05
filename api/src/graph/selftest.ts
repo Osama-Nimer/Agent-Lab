@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import type { Facts, Graph } from "../contract.js";
 import { buildGraph, validateGraph } from "./build.js";
-import { findNodes, indexGraph, neighbors, overview, tracePath } from "./query.js";
+import { findNodes, indexGraph, neighbors, overview, searchNodes, tracePath } from "./query.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixturePath = path.resolve(here, "../../../fixtures/graph.sample.json");
@@ -113,9 +113,22 @@ const ambiguous = buildGraph({
 });
 check("ambiguous endpoint is dropped with an 'ambiguous' warning rather than guessed", ambiguous.edges.length === 0 && ambiguous.stats.warnings.some((w) => /ambiguous/.test(w)), ambiguous.stats.warnings);
 check("findNodes('user', Route) -> 2", findNodes("user", "Route").length === 2);
-check("findNodes('create user', Route) -> OR fallback returns both user routes", findNodes("create user", "Route").length === 2, ids(findNodes("create user", "Route")));
-check("findNodes('create user') -> all-token match (CreateUserService) ranks alone", JSON.stringify(ids(findNodes("create user"))) === JSON.stringify(["service:CreateUserService"]), ids(findNodes("create user")));
-check("findNodes('zzz') -> empty, no throw", findNodes("zzz").length === 0);
+const cu = searchNodes("create user");
+check("search 'create user' -> complete; service first, POST route + insertUser also match (post/insert ≈ create)",
+  cu.complete && cu.nodes[0]?.id === "service:CreateUserService" && ids(cu.nodes).includes("route:POST /api/v1/users") && ids(cu.nodes).includes("repo:insertUser") && !ids(cu.nodes).includes("route:GET /api/v1/users/:id"),
+  { complete: cu.complete, ids: ids(cu.nodes) });
+const cuR = searchNodes("create user", "Route");
+check("search 'create user' (Route) -> the POST route, not the GET", cuR.nodes.length === 1 && cuR.nodes[0]!.id === "route:POST /api/v1/users", ids(cuR.nodes));
+const nl = searchNodes("where is the create user?");
+check("search: stop words removed, same result as 'create user'", JSON.stringify(nl.terms) === JSON.stringify(["create", "user"]) && nl.nodes[0]?.id === "service:CreateUserService", nl);
+const su = searchNodes("signup");
+check("search 'signup' -> synonym of create: finds CreateUserService and POST /users", su.complete && ids(su.nodes).includes("service:CreateUserService") && ids(su.nodes).includes("route:POST /api/v1/users"), ids(su.nodes));
+const tc = searchNodes("user controller");
+check("search: type word becomes a filter ('user controller' -> Controller only)", tc.typeFilter === "Controller" && tc.nodes.length === 1 && tc.nodes[0]!.id === "controller:UserController", tc);
+const fu = searchNodes("fetch a user by id");
+check("search 'fetch a user by id' -> GET route / GetUserService / findUserById lead", fu.complete && ["route:GET /api/v1/users/:id", "service:GetUserService", "repo:findUserById"].includes(fu.nodes[0]!.id), ids(fu.nodes));
+check("search 'authentication' -> AuthService (stem + synonym)", ids(searchNodes("authentication").nodes).includes("service:AuthService"), ids(searchNodes("authentication").nodes));
+check("findNodes('zzz') -> empty, no throw", findNodes("zzz").length === 0 && !searchNodes("zzz").complete);
 check("findNodes('UserController') exact first", findNodes("UserController")[0]?.id === "controller:UserController");
 
 const inN = neighbors("service:CreateUserService", "in");

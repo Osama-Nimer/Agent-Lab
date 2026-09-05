@@ -58,24 +58,26 @@ export function makeTools(ctx: ToolContext, strict: boolean): Tool[] {
   const findNodes = defineTool(strict, {
     name: "find_nodes",
     description:
-      "Search graph nodes by name. Every word in `query` must appear in the node's id, label or module. Returns up to 20 matches with their exact ids. Use this to locate a route, controller, service, repository or model before traversing.",
+      "Search graph nodes by meaning, not just spelling: words are split out of camelCase and paths, stemmed, and expanded with synonyms (create ≈ register/signup/add/POST, get ≈ list/fetch, user ≈ account/profile…). Pass the user's own words. Returns up to 20 matches with exact ids, best first. Use this to locate a route, controller, service, repository or model before traversing.",
     schema: z.object({
-      query: z.string().describe("words to search for, e.g. 'user' or 'POST users'"),
+      query: z.string().describe("the user's words, e.g. 'create user', 'enroll in a course', 'POST users'"),
       type: z.enum(NODE_TYPES).nullable().describe("restrict to one node type, or null for any"),
     }),
     execute: async ({ query, type }) => {
       record("find_nodes", { query, type });
       try {
-        const nodes = q.findNodes(query, (type ?? undefined) as NodeType | undefined);
-        see(nodes);
-        const exact = nodes.some((n) => n.label.toLowerCase() === query.trim().toLowerCase());
+        const r = q.searchNodes(query, (type ?? undefined) as NodeType | undefined);
+        see(r.nodes);
+        const exact = r.nodes.some((n) => n.label.toLowerCase() === query.trim().toLowerCase());
         // Smaller models re-search with spelling variants when the exact name is absent. Say it once.
-        const note = nodes.length === 0
-          ? "No node matches. Try a shorter query (one word) or get_graph_overview to see what exists."
+        const note = r.nodes.length === 0
+          ? `Nothing matches ${JSON.stringify(r.terms)}. Try one broader word, or get_graph_overview to see what exists.`
           : exact
             ? undefined
-            : `No node is labelled exactly "${query}"; these are the closest matches and are the answer to your search — use their ids, do not search again with variants.`;
-        return JSON.stringify({ count: nodes.length, exactMatch: exact, note, nodes: nodes.map(compact) });
+            : r.complete
+              ? `No node is literally named "${query}", but these match every word by synonym (e.g. create ≈ register/signup). They ARE the answer — use their ids and explain the naming to the user; do not search again with variants.`
+              : `Only partial matches for ${JSON.stringify(r.terms)}; the best candidates are listed first. If one fits the intent, use it; otherwise answer that the graph has no such component.`;
+        return JSON.stringify({ count: r.nodes.length, exactMatch: exact, complete: r.complete, typeFilter: r.typeFilter, note, nodes: r.nodes.map(compact) });
       } catch (e) {
         return fail(e);
       }

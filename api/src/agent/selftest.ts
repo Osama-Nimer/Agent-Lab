@@ -129,7 +129,7 @@ for (const strict of [true, false]) {
 
   const rc = new RunContext();
   const r1 = JSON.parse(String(await fn.invoke(rc, JSON.stringify({ query: "user", type: null }))));
-  check(`${mode}: find_nodes('user') -> 9 via invoke, flagged as no exact match`, r1.count === 9 && r1.exactMatch === false && /closest matches/.test(r1.note), r1);
+  check(`${mode}: find_nodes('user') -> 9 via invoke, complete, flagged as no exact match`, r1.count === 9 && r1.exactMatch === false && r1.complete === true && /ARE the answer/.test(r1.note), r1);
   const r1b = JSON.parse(String(await fn.invoke(rc, JSON.stringify({ query: "UserController", type: null }))));
   check(`${mode}: find_nodes('UserController') -> exactMatch, no note`, r1b.exactMatch === true && r1b.note === undefined, r1b);
   const r2 = JSON.parse(String(await nb.invoke(rc, JSON.stringify({ nodeId: "service:CreateUserService", direction: "in", depth: null }))));
