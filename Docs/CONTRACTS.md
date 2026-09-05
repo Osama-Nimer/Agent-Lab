@@ -49,15 +49,17 @@ export interface FactRoute extends FactNode {
   meta: {
     method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS" | "ALL";
     path: string;            // FULL path incl. mount prefix: "/api/v1/users/:id"
-    handlerName: string;     // "create"
-    controllerName: string;  // "UserController"
-    middleware: string[];    // ["authMiddleware", "requireRole"]
+    handlerName: string;            // "create"
+    controllerName: string | null;  // "UserController" — null for inline arrow handlers
+    middleware: string[];           // ["authMiddleware", "requireRole"]
   };
 }
 
 export interface FactEdge {
   from: string;              // FactNode.name of source
   to: string;                // FactNode.name of target
+  fromKind?: NodeType;       // STRONGLY RECOMMENDED — see collision note below
+  toKind?: NodeType;
   type: EdgeType;
   confidence: Confidence;
   evidence: Evidence;
@@ -83,6 +85,15 @@ export interface Facts {
 **SWE-A guarantees:** every `FactEdge.from` / `.to` matches some `FactNode.name` exactly
 (case-sensitive). Unresolvable references are dropped and recorded in `stats.warnings` — never
 emitted as dangling edges.
+
+> **Name collisions (found by Lane B's self-test).** Names are not unique across kinds: a Module
+> `users` and a Model `users` are routine in real repos. **Lane A: set `fromKind` / `toKind` on
+> every edge** — you always know them at emit time, and it makes resolution exact. If omitted,
+> the graph builder resolves both ends *jointly* against the legal (source kind → target kinds)
+> pairs for that edge type (`Project` CONTAINS `Module`, `Module` CONTAINS the rest, `HANDLED_BY`
+> is Route→Controller, `READS_WRITES` targets a Model, `IMPORTS` is Module→Module, …). Exactly
+> one legal pairing wins; zero or several, or a self-loop, is **dropped with a warning that names
+> the candidates** — never guessed. Both fields are optional so nothing already written breaks.
 
 ---
 
@@ -221,7 +232,8 @@ Graph-first. The system prompt must forbid `read_file` when a graph tool can ans
 | 5 | `read_file` | `{ path }` | file text, truncated to 400 lines | fallback |
 | 6 | `search_code` | `{ pattern }` | up to 30 `{file, line, text}` | fallback |
 
-`direction` is `"in" | "out" | "both"`; `depth` is `1 | 2`.
+`direction` is `"in" | "out" | "both"`; `depth` is 1–6 (6 from a Route returns the whole
+request chain in one call — the agent uses this for "how does X work" questions).
 
 Tools 1-3 are **required**. Tool 4 is the stretch goal. Tools 5-6 are the honesty valve for
 "the graph did not capture it" — keep them, but they must be last resort.

@@ -1,0 +1,40 @@
+{
+  "name": "engineering-graph-api",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit",
+    "ask": "tsx src/agent/cli.ts",
+    "test:graph": "tsx src/graph/selftest.ts",
+    "discover": "tsx src/discovery/cli.ts",
+    "test:agent": "tsx src/agent/selftest.ts",
+    "test": "npm run test:graph && npm run test:agent",
+    "smoke": "tsx src/smoke.ts",
+    "smoke:live": "tsx src/smoke.ts --live"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@openai/agents": "^0.17.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "fast-glob": "^3.3.3",
+    "graphology": "^0.26.0",
+    "graphology-traversal": "^0.3.1",
+    "simple-git": "^3.36.0",
+    "ts-morph": "^28.0.0",
+    "zod": "^4.5.4"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.4.1",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  },
+  "private": true
+}

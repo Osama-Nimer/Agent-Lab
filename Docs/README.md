@@ -52,7 +52,7 @@ Four decisions in `EXECUTION_PLAN.md` section 0. Only one is truly blocking:
 
 - Demo repo: **not yet pinned** — blocking Lane A tuning
 - Backend placement (separate Express vs Next route handlers): assumed **separate Express on :3001**
-- `OPENAI_MODEL`: assumed `gpt-4.1-mini`, confirm account access at T+0
+- LLM provider: **free open-weight model on Groq** (auto-picked from the live catalog, currently `gpt-oss-120b`), Cerebras backup; any OpenAI-compatible host via env (`SETUP.md` section 5)
 - Judging weight (visual polish vs answer quality): assumed **answer quality**
 
 Correct any of these and the affected sections are flagged in `EXECUTION_PLAN.md` section 0.

@@ -17,16 +17,28 @@ You own the scaffold. Do these first, they unblock everyone:
 
 1. Create the directory tree from `SETUP.md` section 2.
 2. Run the `api/` install (`SETUP.md` section 3). Tell SWE-A the moment it is done.
-3. **Verify the zod compatibility risk in 2 minutes** — define one throwaway tool and run it.
-   If it throws a schema error, `npm i zod@^3.23`. Do not discover this at T+80.
+3. ~~Verify the zod compatibility risk~~ **Done:** `@openai/agents` 0.17 requires zod ^4; zod 4.5.4
+   is installed. Never downgrade it.
 4. Write `api/src/contract.ts` by copying `CONTRACTS.md` sections 1-2 verbatim. Announce the freeze.
 
 ---
+
+## Provider
+
+`api/src/llm.ts` selects the model host from env. Default is **Groq** (`GROQ_API_KEY`, free);
+Cerebras, OpenRouter, Meta's Llama API, Gemini, local Ollama and OpenAI are presets too. The
+model is **resolved against the host's live `/models` catalog at startup** from a preference list
+(currently lands on `openai/gpt-oss-120b` on Groq — Meta Llama chat models are no longer listed
+there), so a catalog change is a warning, not a 404. Non-OpenAI hosts automatically get
+non-strict JSON-Schema tools with server-side argument validation, because only OpenAI honours
+strict function schemas. `npm run test:agent` covers the resolution rules and both tool formats
+without any network.
 
 ## Files you create
 
 ```
 api/src/
+├── llm.ts               T+0  provider presets + SDK wiring
 ├── contract.ts          T+0  shared, frozen
 ├── graph/
 │   ├── build.ts         B1   Facts -> Graph

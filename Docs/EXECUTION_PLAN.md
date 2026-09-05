@@ -17,7 +17,7 @@ These are **not** blocking the scaffold, but Lane A cannot be tuned without #1.
 |---|---|---|---|
 | 1 | **Pin the demo repo** (see criteria below) | — must be answered | Team lead |
 | 2 | Backend placement: separate Express (a) vs Next route handlers (b) | **(a) separate Express on :3001** — already assumed throughout these docs | Team lead |
-| 3 | `OPENAI_MODEL` | `gpt-4.1-mini` — confirm account access at T+0 | SWE-B |
+| 3 | LLM provider | **Free open-weight model via Groq** (`GROQ_API_KEY`; model auto-picked from the live catalog, currently `openai/gpt-oss-120b`). Cerebras as backup. Any OpenAI-compatible host works; see `SETUP.md` section 5 | SWE-B |
 | 4 | Judging weight: visual polish vs answer quality | Assume **answer quality**; spare minutes go to Lane B | Team lead |
 
 ### Demo repo selection criteria
@@ -40,7 +40,7 @@ switch rather than debug.
 
 - 2h is wall-clock with all three coding simultaneously: ~65 min build, ~20 min integrate,
   ~15 min rehearse, ~10 min buffer.
-- Everyone has the `OPENAI_API_KEY` at T+0.
+- Two free provider keys (Groq + one backup) are in `api/.env` at T+0.
 - Node 24 / npm 11 / git 2.51 present on all three machines (verified on one).
 - Target language is TypeScript only. Non-TS files are ignored, not warned about.
 
@@ -150,10 +150,12 @@ If a question fails live, ask the other one. Do not debug on stage.
 | Risk | Likelihood | Mitigation | Owner |
 |---|---|---|---|
 | Demo repo does not match the convention | **High** | Pin repo at T+0, go/no-go at T+60, fallback repo ready | Lead |
-| `@openai/agents` + zod v4 schema incompatibility | Medium | Test one tool definition at T+0; pin `zod@^3.23` if it throws | SWE-B |
+| ~~`@openai/agents` + zod incompatibility~~ | Resolved | SDK 0.17 requires zod ^4; installed. Do not downgrade. | SWE-B |
+| Name collisions across node kinds (Module `users` vs Model `users`) mis-wire edges | Medium | `fromKind`/`toKind` on `FactEdge`; builder disambiguates by edge type; self-test covers it | SWE-A / SWE-B |
 | React Flow crashes on a dangling edge | Medium | B validates and drops dangling edges before responding (contract section 2) | SWE-B |
 | Graph too dense to read on screen | Medium | Filter to one module by default; "show all" is a toggle | SWE-C |
 | Live clone fails on venue wifi | Medium | Demo from `localPath`; pre-clone before presenting | Lead |
+| Free-tier rate limit mid-demo (Groq: 8k tokens/min; one question ≈ 3–6k) | **High** | Ask one question per minute, never two at once; agent tuned for 2–3 turns; Gemini key as backup (`LLM_PROVIDER=gemini` + restart). `/api/health` shows which is live | SWE-B |
 | Agent answers from files instead of the graph | Medium | System prompt forbids it; `toolCalls` trace makes cheating visible | SWE-B |
 | Scope creep | **High** | The Cut List below is pre-agreed, not negotiated at T+90 | ALL |
 
